@@ -1,0 +1,9 @@
+[package]
+name = "fila"
+version = "0.1.0"
+edition = "2021"
+description = "A simple PostgreSQL job processing library"
+license = "MIT"
+
+[dependencies]
+
