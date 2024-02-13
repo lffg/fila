@@ -1,59 +1,62 @@
 use std::{
-    any::{Any, TypeId},
-    collections::{HashMap, HashSet},
-    future::Future,
+    any::{type_name, Any},
     marker::PhantomData,
 };
 
 use serde::de::DeserializeOwned;
-use tokio_util::sync::CancellationToken;
 
-use crate::job;
+use crate::{job, subscriber::Subscriber};
 
-use super::Subscriber;
-
-type JobMap = HashMap<job::Name, Box<dyn ErasedJob + Send + Sync + 'static>>;
-
-type TypeMap = HashMap<TypeId, Box<dyn Any + Send + Sync + 'static>>;
-
-pub struct SubscriberBuilder<S = ()> {
-    pub(super) queue_names: HashSet<job::QueueName>,
-    pub(super) state_map: TypeMap,
-    pub(super) jobs: JobMap,
+pub struct Builder<S = ()> {
+    inner: Subscriber,
     _state: PhantomData<S>,
 }
 
-impl SubscriberBuilder<()> {
+impl Builder<()> {
     pub(super) fn new() -> Self {
         Self {
-            queue_names: Default::default(),
-            state_map: Default::default(),
-            jobs: Default::default(),
+            inner: Subscriber::new(),
             _state: PhantomData,
         }
     }
 
+    /// Returns a fully-configured and valid [`Subscriber`].
     pub fn build(self) -> Subscriber {
-        Subscriber {
-            cancel_token: CancellationToken::new(),
-            inner: self,
-        }
+        self.inner
     }
 
-    pub fn with_state<S, B>(mut self, state: &S, builder_fn: B) -> SubscriberBuilder<()>
+    /// Registers the given state associated with its type `S` and runs the
+    /// given builder closure which allows the registration of jobs with state
+    /// of type `S`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if already registered a state of type `S`.
+    pub fn with_state<S, B>(mut self, state: &S, builder_fn: B) -> Builder<()>
     where
         S: Clone,
         S: Send + Sync + 'static,
-        B: FnOnce(SubscriberBuilder<S>) -> SubscriberBuilder<S>,
+        B: FnOnce(Builder<S>) -> Builder<S>,
     {
-        let ty = TypeId::of::<S>();
-        self.state_map.insert(ty, Box::new(state.clone()));
+        let duplicate = self.inner.job_registry.register_state::<S>(state.clone());
+        if duplicate {
+            let ty = type_name::<S>();
+            panic!("already registered state with type {ty:?}");
+        }
         cast(builder_fn(cast(self)))
     }
 }
 
-impl<S> SubscriberBuilder<S> {
-    pub fn register<J>(mut self) -> SubscriberBuilder<S>
+impl<S> Builder<S> {
+    /// Registers the given job of type `J`.
+    ///
+    /// # Panics
+    ///
+    /// - If already registered a job of name `J::NAME`.
+    /// - If the provided configuration is invalid as per [`validate`].
+    ///
+    /// [`validate`]: crate::job::Config::validate
+    pub fn register<J>(mut self) -> Builder<S>
     where
         J: job::Job<State = S>,
         J: DeserializeOwned,
@@ -61,92 +64,27 @@ impl<S> SubscriberBuilder<S> {
         J::State: Clone + Any,
         J::State: Sync + Send + 'static,
     {
-        if self.jobs.contains_key(J::NAME) {
-            panic!("already registered job with name {:?}", J::NAME);
-        }
-        let ty = TypeId::of::<J::State>();
+        let name = J::NAME;
 
         let config = J::config();
-        config.validate().unwrap();
+        if let Err(msg) = config.validate() {
+            println!("invalid configuration for job {name:?}: {msg}");
+        }
 
-        self.queue_names.insert(config.queue);
-        self.jobs.insert(
-            J::NAME,
-            Box::new(JobData {
-                run: move |payload: &str, ctx: ContextWithoutState, state_map: &TypeMap| {
-                    // TODO: Get rid of these unwraps.
-                    let payload: J = serde_json::from_str(payload).unwrap();
-                    let state = TypeMap::get(state_map, &ty).unwrap();
-                    let state: &J::State = state.downcast_ref().unwrap();
-                    let ctx = ctx.into_context::<J::State>(J::config(), state.clone());
-                    async move { J::exec(payload, &ctx).await }
-                },
-                config,
-            }),
-        );
+        let duplicate = self.inner.job_registry.register::<J>();
+        if duplicate {
+            panic!("already registered job with name {name:?}");
+        }
+        self.inner.queue_names.insert(config.queue);
+
         self
     }
 }
 
-#[async_trait::async_trait]
-pub(crate) trait ErasedJob {
-    async fn run(
-        &self,
-        enc_payload: &str,
-        ctx: ContextWithoutState,
-        state_map: &TypeMap,
-    ) -> Result<(), job::Error>;
-
-    fn config(&self) -> &job::Config;
-}
-
-struct JobData<R> {
-    run: R,
-    config: job::Config,
-}
-
-#[async_trait::async_trait]
-impl<R, Fut> ErasedJob for JobData<R>
-where
-    R: Send + Sync + 'static,
-    R: Fn(&str, ContextWithoutState, &TypeMap) -> Fut,
-    Fut: Future<Output = Result<(), job::Error>>,
-    Fut: Send + Sync + 'static,
-{
-    async fn run(
-        &self,
-        enc_payload: &str,
-        ctx: ContextWithoutState,
-        state_map: &TypeMap,
-    ) -> Result<(), job::Error> {
-        (self.run)(enc_payload, ctx, state_map).await
-    }
-
-    fn config(&self) -> &job::Config {
-        &self.config
-    }
-}
-
-pub(crate) struct ContextWithoutState {
-    pub(crate) attempt: u16,
-}
-
-impl ContextWithoutState {
-    fn into_context<S>(self, config: job::Config, state: S) -> job::Context<S> {
-        job::Context {
-            state,
-            config,
-            attempt: self.attempt,
-        }
-    }
-}
-
 #[inline(always)]
-fn cast<A, B>(b: SubscriberBuilder<A>) -> SubscriberBuilder<B> {
-    SubscriberBuilder {
-        queue_names: b.queue_names,
-        state_map: b.state_map,
-        jobs: b.jobs,
+fn cast<A, B>(this: Builder<A>) -> Builder<B> {
+    Builder {
+        inner: this.inner,
         _state: PhantomData,
     }
 }

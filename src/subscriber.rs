@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use sqlx::{
     postgres::{PgListener, PgNotification},
     prelude::FromRow,
@@ -12,18 +14,31 @@ use crate::{
     job, PG_TOPIC_NAME,
 };
 
-use self::builder::SubscriberBuilder;
+// Public modules.
+mod builder;
+pub use builder::Builder;
 
-pub mod builder;
+// Private modules.
+mod magic;
 
 pub struct Subscriber {
     cancel_token: CancellationToken,
-    inner: SubscriberBuilder,
+    /// The set of the queues of all the registered jobs.
+    queue_names: HashSet<job::QueueName>,
+    job_registry: magic::JobRegistry,
 }
 
 impl Subscriber {
-    pub fn builder() -> SubscriberBuilder {
-        SubscriberBuilder::new()
+    pub(crate) fn new() -> Self {
+        Self {
+            cancel_token: Default::default(),
+            queue_names: Default::default(),
+            job_registry: Default::default(),
+        }
+    }
+
+    pub fn builder() -> Builder {
+        Builder::new()
     }
 
     /// Uses the provided [`CancellationToken`] which later may be used to
@@ -36,17 +51,18 @@ impl Subscriber {
     /// Constructs a new [`SubscriberListener`] type using the provided database
     /// pool.
     pub fn with_pool(self, pool: PgPool) -> SubscriberListener {
-        SubscriberListener {
-            cancel_token: self.cancel_token,
-            inner: self.inner,
-            pool,
-        }
+        SubscriberListener { inner: self, pool }
+    }
+}
+
+impl Default for Subscriber {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
 pub struct SubscriberListener {
-    cancel_token: CancellationToken,
-    inner: SubscriberBuilder,
+    inner: Subscriber,
     pool: PgPool,
 }
 
@@ -79,7 +95,7 @@ impl SubscriberListener {
                 notification = listener.recv() => {
                     self.handle_pg_notification(notification).await;
                 },
-                () = self.cancel_token.cancelled() => {
+                () = self.inner.cancel_token.cancelled() => {
                     trace!("shutting subscriber down");
                     break;
                 },
@@ -158,40 +174,40 @@ impl SubscriberListener {
             row
         };
         let id = row.id;
+        let job_name = &row.name;
 
         // exec job
         // =====================================================================
         trace!(?id, "job in progress");
-        let job_handle = &self.inner.jobs[&*row.name];
         let current_attempt = u16::try_from(row.attempts).unwrap();
-        let ctx = builder::ContextWithoutState {
+        let ctx = magic::ErasedJobContext {
+            name: job_name,
+            encoded_payload: &row.payload,
             attempt: current_attempt,
         };
-        let job_result = job_handle
-            .run(&row.payload, ctx, &self.inner.state_map)
-            .await;
+        let result = self.inner.job_registry.dispatch_and_exec(ctx).await;
 
-        let finish_state = match job_result {
-            Ok(_) => {
+        let finish_state = match result {
+            Ok(Ok(_)) => {
                 trace!(?id, "job successful");
                 job::State::Successful
             }
-            Err(job::Error {
+            Ok(Err(job::Error {
                 error,
                 kind: job::ErrorKind::Cancellation,
-            }) => {
+            })) => {
                 error!(?id, ?error, "job cancelled");
                 job::State::Cancelled
             }
-            Err(job::Error {
+            Ok(Err(job::Error {
                 error,
                 kind: job::ErrorKind::Failure,
-            }) => {
+            })) => {
                 let &job::Config {
                     max_attempts,
                     queue,
                     ..
-                } = job_handle.config();
+                } = self.inner.job_registry.config_for(job_name);
 
                 if current_attempt < max_attempts {
                     error!(
@@ -225,6 +241,10 @@ impl SubscriberListener {
                     );
                     job::State::Cancelled
                 }
+            }
+            Err(error) => {
+                error!(?error, "failed to dispatch job (lib side)");
+                return;
             }
         };
         Self::set_job_finished_state(row.id, finish_state, &self.pool)

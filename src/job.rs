@@ -1,6 +1,7 @@
 use std::{error::Error as StdError, future::Future, time::Duration};
 
 pub type Name = &'static str;
+pub type BorrowedName<'a> = &'a str;
 
 pub type QueueName = &'static str;
 
@@ -16,7 +17,9 @@ pub trait Job: Send + Sync {
 
     /// Defines the configuration for this job type (mapped by this job's name).
     ///
-    /// This function *may* be called once per job type.
+    /// There's no guarantee about how many times this function is called per
+    /// job. Hence user's are encouraged to *not* perform expensive computations
+    /// to create a config.
     fn config() -> Config {
         Config::default()
     }
@@ -26,9 +29,6 @@ pub trait Job: Send + Sync {
 pub struct Context<S> {
     /// The job's state, which is used to pass shared state between jobs.
     pub state: S,
-
-    /// The job configuration.
-    pub config: Config,
 
     /// The attempt number of the job. Starts with 0 if it's the first attempt.
     pub attempt: u16,
