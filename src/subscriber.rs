@@ -33,7 +33,7 @@ impl Subscriber {
         Self {
             cancel_token: Default::default(),
             queue_names: Default::default(),
-            job_registry: Default::default(),
+            job_registry: magic::JobRegistry::new(),
         }
     }
 

@@ -16,13 +16,24 @@ type JobMap = HashMap<job::Name, Box<dyn ErasedJob + Send + Sync + 'static>>;
 
 type TypeMap = HashMap<TypeId, Box<dyn Any + Send + Sync + 'static>>;
 
-#[derive(Default)]
 pub struct JobRegistry {
     job_map: JobMap,
     state_map: TypeMap,
 }
 
 impl JobRegistry {
+    /// Constructs a new job registry.
+    pub fn new() -> Self {
+        let mut registry = Self {
+            job_map: Default::default(),
+            state_map: Default::default(),
+        };
+        // Add the "default state", the unit value.
+        // Otherwise, will fail to dispatch jobs that don't have it defined.
+        registry.register_state(());
+        registry
+    }
+
     /// Dispatches and executes a job given its name.
     ///
     /// The outer result represents a failure in the library side. The inner
