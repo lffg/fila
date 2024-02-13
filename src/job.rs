@@ -18,7 +18,7 @@ pub trait Job: Send + Sync {
     /// Defines the configuration for this job type (mapped by this job's name).
     ///
     /// There's no guarantee about how many times this function is called per
-    /// job. Hence user's are encouraged to *not* perform expensive computations
+    /// job. Hence users are encouraged to *not* perform expensive computations
     /// to create a config.
     fn config() -> Config {
         Config::default()
