@@ -15,9 +15,6 @@ tokio-util.workspace = true
 tracing.workspace = true
 uuid.workspace = true
 
-[dev-dependencies]
-tokio = { workspace = true, features = ["rt", "macros"] }
-
 [workspace]
 resolver = "2"
 members = ["."]
@@ -33,7 +30,14 @@ sqlx = { version = "0.7.3", features = [
     "uuid",
     "json",
 ] }
-tokio = { version = "1.36.0", features = ["rt", "time", "sync"] }
+tokio = { version = "1.36.0", features = ["rt", "time", "sync", "macros"] }
 tokio-util = { version = "0.7.10", features = ["rt"] }
 tracing = "0.1.40"
 uuid = { version = "1.7.0", features = ["v7"] }
+
+[workspace.lints.clippy]
+# Groups
+all = "warn"
+pedantic = "warn"
+# Individual lints
+wildcard_imports = { level = "allow", priority = 2 }
