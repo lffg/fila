@@ -44,9 +44,8 @@ async fn test(pool: PgPool) {
     let subscriber = fila::subscriber::Subscriber::builder()
         .with_state(&state, |b| b.register::<MyJobThatWillSucceed>())
         .build();
-
     let sub_pool = pool.clone();
-    tokio::spawn(async move {
+    let sub_handle = tokio::spawn(async move {
         subscriber
             .with_pool(sub_pool.clone())
             .listen()
@@ -76,4 +75,7 @@ async fn test(pool: PgPool) {
         .await
         .unwrap();
     assert_eq!(state, "successful");
+
+    // FIXME: Add graceful shutdown to the listener task.
+    sub_handle.abort();
 }
