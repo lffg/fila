@@ -1,4 +1,10 @@
-use sqlx::{postgres::PgListener, prelude::FromRow, PgExecutor, PgPool};
+use sqlx::{
+    postgres::{PgListener, PgNotification},
+    prelude::FromRow,
+    PgExecutor, PgPool,
+};
+use tokio::select;
+use tokio_util::sync::CancellationToken;
 use tracing::{error, instrument, trace, warn};
 
 use crate::{
@@ -11,6 +17,7 @@ use self::builder::SubscriberBuilder;
 pub mod builder;
 
 pub struct Subscriber {
+    cancel_token: CancellationToken,
     inner: SubscriberBuilder,
 }
 
@@ -19,8 +26,18 @@ impl Subscriber {
         SubscriberBuilder::new()
     }
 
+    /// Uses the provided [`CancellationToken`] which later may be used to
+    /// perform graceful shutdown of the subscriber-related tasks.
+    pub fn with_cancellation_token(mut self, cancel_token: CancellationToken) -> Self {
+        self.cancel_token = cancel_token;
+        self
+    }
+
+    /// Constructs a new [`SubscriberListener`] type using the provided database
+    /// pool.
     pub fn with_pool(self, pool: PgPool) -> SubscriberListener {
         SubscriberListener {
+            cancel_token: self.cancel_token,
             inner: self.inner,
             pool,
         }
@@ -28,6 +45,7 @@ impl Subscriber {
 }
 
 pub struct SubscriberListener {
+    cancel_token: CancellationToken,
     inner: SubscriberBuilder,
     pool: PgPool,
 }
@@ -57,19 +75,31 @@ impl SubscriberListener {
     async fn run_listener(&mut self, listener: &mut PgListener) {
         trace!(topic = PG_TOPIC_NAME, "listening");
         loop {
-            match listener.recv().await {
-                Ok(event) => {
-                    let payload = event.payload();
-                    trace!(?payload, "received listener message");
-                    let Some(queue_name) = self.parse_queue_name(payload) else {
-                        trace!("unrecognized message format, skipping");
-                        continue;
-                    };
-                    self.handle_message(queue_name).await;
-                }
-                Err(error) => {
-                    warn!(?error, "failed to receive listener message");
-                }
+            select! {
+                notification = listener.recv() => {
+                    self.handle_pg_notification(notification).await;
+                },
+                () = self.cancel_token.cancelled() => {
+                    trace!("shutting subscriber down");
+                    break;
+                },
+            }
+        }
+    }
+
+    async fn handle_pg_notification(&mut self, notification: Result<PgNotification, sqlx::Error>) {
+        match notification {
+            Ok(event) => {
+                let payload = event.payload();
+                trace!(?payload, "received listener message");
+                let Some(queue_name) = self.parse_queue_name(payload) else {
+                    trace!("unrecognized message format, skipping");
+                    return;
+                };
+                self.handle_message(queue_name).await;
+            }
+            Err(error) => {
+                warn!(?error, "failed to receive listener message");
             }
         }
     }

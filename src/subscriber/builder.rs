@@ -6,6 +6,7 @@ use std::{
 };
 
 use serde::de::DeserializeOwned;
+use tokio_util::sync::CancellationToken;
 
 use crate::job;
 
@@ -33,7 +34,10 @@ impl SubscriberBuilder<()> {
     }
 
     pub fn build(self) -> Subscriber {
-        Subscriber { inner: self }
+        Subscriber {
+            cancel_token: CancellationToken::new(),
+            inner: self,
+        }
     }
 
     pub fn with_state<S, B>(mut self, state: &S, builder_fn: B) -> SubscriberBuilder<()>
