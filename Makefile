@@ -1,5 +1,6 @@
-export RUST_LOG := warn,fila=trace
-export NOCAPTURE := 0
+export RUST_LOG ?= warn,fila=trace
+export NOCAPTURE ?= 0
+export FILTER ?=
 
 export CARGO_TEST_RUST_FLAGS :=
 
@@ -17,4 +18,4 @@ check:
 
 .PHONY: test
 test:
-	cargo test --all-features --all -- $(CARGO_TEST_RUST_FLAGS)
+	cargo test --all-features --all -- $(CARGO_TEST_RUST_FLAGS) $(FILTER)
