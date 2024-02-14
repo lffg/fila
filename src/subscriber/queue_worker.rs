@@ -50,11 +50,12 @@ pub struct QueueWorker {
     /// on the queue associated with this queue worker. The authoritative
     /// number, as always, comes from the database.
     ///
-    /// This counter is used to increase the velocity at which we can process "new
-    /// job" events. In the pathological scenario where jobs are enqueued faster
-    /// than they are processed, if the implementation were to wait for an
-    /// available job worker to consume more messages, we would have to use an
-    /// unbounded channel which could, in practice, grow forever.
+    /// This counter is used to increase the velocity at which we can process
+    /// "new job" events. In the pathological scenario where jobs are
+    /// enqueued faster than they are processed, if the implementation were
+    /// to wait for an available job worker to consume more messages, we
+    /// would have to use an unbounded channel which could, in practice,
+    /// grow forever.
     ///
     /// By using a counter, we just an estimate number about how many jobs are
     /// available, and decrement it while processing.

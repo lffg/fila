@@ -1,12 +1,11 @@
-use std::sync::Arc;
-use std::{borrow::Cow, collections::HashSet};
+use std::{borrow::Cow, collections::HashSet, sync::Arc};
 
 use sqlx::{postgres::PgListener, PgPool};
 use tokio_util::sync::CancellationToken;
 
-use crate::subscriber::{coordinator::Coordinator, listener::Listener};
 use crate::{
     error::{Result, ResultExt},
+    subscriber::{coordinator::Coordinator, listener::Listener},
     PG_TOPIC_NAME,
 };
 

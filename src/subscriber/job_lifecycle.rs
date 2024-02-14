@@ -2,8 +2,7 @@ use std::cmp::Ordering;
 
 use sqlx::{FromRow, PgPool, Postgres, Transaction};
 use tokio_util::sync::CancellationToken;
-use tracing::error;
-use tracing::{instrument, trace};
+use tracing::{error, instrument, trace};
 use uuid::Uuid;
 
 use crate::{

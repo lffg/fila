@@ -1,5 +1,4 @@
-use std::sync::Arc;
-use std::{borrow::Cow, collections::HashMap};
+use std::{borrow::Cow, collections::HashMap, sync::Arc};
 
 use sqlx::PgPool;
 use tokio::{
@@ -9,8 +8,7 @@ use tokio::{
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
 use tracing::{instrument, trace, warn};
 
-use crate::subscriber::queue_worker;
-use crate::subscriber::{magic::JobRegistry, queue_worker::QueueWorker};
+use crate::subscriber::{magic::JobRegistry, queue_worker, queue_worker::QueueWorker};
 
 pub type QueueName = Cow<'static, str>;
 
