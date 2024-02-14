@@ -3,8 +3,6 @@ use std::{error::Error as StdError, future::Future, time::Duration};
 pub type Name = &'static str;
 pub type BorrowedName<'a> = &'a str;
 
-pub type QueueName = &'static str;
-
 pub trait Job: Send + Sync {
     const NAME: Name;
 
@@ -41,7 +39,7 @@ pub const DEFAULT_TIMEOUT: Option<Duration> = None;
 #[derive(Debug, Clone)]
 pub struct Config {
     /// The name of the queue on which the job will run on.
-    pub queue: QueueName,
+    pub queue: &'static str,
 
     /// The maximum number of attempts for a given job, _including_ the first
     /// execution. By default, is set to `1`, meaning that Fila will only
