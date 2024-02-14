@@ -46,18 +46,12 @@ async fn test(pool: PgPool) {
 
     let subscriber = fila::subscriber::Subscriber::builder()
         .with_state(&state, |b| b.register::<MyJobThatWillSucceed>())
+        .with_cancellation_token(ct.clone())
+        .with_pool(pool.clone())
         .build();
-    tokio::spawn({
-        let ct = ct.clone();
-        let pool = pool.clone();
-        async move {
-            subscriber
-                .with_cancellation_token(ct)
-                .with_pool(pool.clone())
-                .listen()
-                .await
-                .unwrap();
-        }
+
+    tokio::spawn(async move {
+        subscriber.start().await.unwrap();
     });
 
     let send_pool = pool.clone();

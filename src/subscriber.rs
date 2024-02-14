@@ -22,52 +22,30 @@ pub use builder::Builder;
 mod magic;
 
 pub struct Subscriber {
-    cancel_token: CancellationToken,
-    /// The set of the queues of all the registered jobs.
-    queue_names: HashSet<job::QueueName>,
     job_registry: magic::JobRegistry,
+    queue_names: HashSet<&'static str>,
+    pool: PgPool,
+    cancellation_token: CancellationToken,
 }
 
 impl Subscriber {
-    pub(crate) fn new() -> Self {
-        Self {
-            cancel_token: Default::default(),
-            queue_names: Default::default(),
-            job_registry: magic::JobRegistry::new(),
-        }
-    }
-
+    /// Returns a new [subscriber builder](Builder). Consult its module-level
+    /// documentation for more information.
     pub fn builder() -> Builder {
         Builder::new()
     }
 
-    /// Uses the provided [`CancellationToken`] which later may be used to
-    /// perform graceful shutdown of the subscriber-related tasks.
-    pub fn with_cancellation_token(mut self, cancel_token: CancellationToken) -> Self {
-        self.cancel_token = cancel_token;
-        self
-    }
-
-    /// Constructs a new [`SubscriberListener`] type using the provided database
-    /// pool.
-    pub fn with_pool(self, pool: PgPool) -> SubscriberListener {
-        SubscriberListener { inner: self, pool }
-    }
-}
-
-impl Default for Subscriber {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-pub struct SubscriberListener {
-    inner: Subscriber,
-    pool: PgPool,
-}
-
-impl SubscriberListener {
-    pub async fn listen(&mut self) -> Result<()> {
+    /// Starts all of the Fila's background services related to the subscriber.
+    ///
+    /// The future returned by this method runs indefinitely until the
+    /// cancellation token provided by [`Builder::with_cancellation_token`]
+    /// gets fulfilled.
+    ///
+    /// Fails to start if the database pool can't establish a connection or the
+    /// PostgreSQL listener fails to start. Errors related to jobs are
+    /// internally handled and exposed through the error-reporting facilities
+    /// provided by Fila.
+    pub async fn start(self) -> Result<()> {
         // Tries to connect to the database to minimize connection errors next
         sqlx::query("SELECT 1;")
             .fetch_one(&self.pool)
@@ -82,20 +60,34 @@ impl SubscriberListener {
             .await
             .with_ctx("failed to listen for postgres topic")?;
 
-        // TODO: Spawn task to consume "abandoned" available jobs.
-        self.run_listener(&mut listener).await;
+        let mut imp = SubscriberImpl {
+            job_registry: self.job_registry,
+            queue_names: self.queue_names,
+            cancellation_token: self.cancellation_token,
+            pool: self.pool,
+        };
 
+        imp.listen(&mut listener).await;
         Ok(())
     }
+}
 
-    async fn run_listener(&mut self, listener: &mut PgListener) {
+struct SubscriberImpl {
+    job_registry: magic::JobRegistry,
+    queue_names: HashSet<&'static str>,
+    cancellation_token: CancellationToken,
+    pool: PgPool,
+}
+
+impl SubscriberImpl {
+    async fn listen(&mut self, listener: &mut PgListener) {
         trace!(topic = PG_TOPIC_NAME, "listening");
         loop {
             select! {
                 notification = listener.recv() => {
                     self.handle_pg_notification(notification).await;
                 },
-                () = self.inner.cancel_token.cancelled() => {
+                () = self.cancellation_token.cancelled() => {
                     trace!("shutting subscriber down");
                     break;
                 },
@@ -185,7 +177,7 @@ impl SubscriberListener {
             encoded_payload: &row.payload,
             attempt: current_attempt,
         };
-        let result = self.inner.job_registry.dispatch_and_exec(ctx).await;
+        let result = self.job_registry.dispatch_and_exec(ctx).await;
 
         let finish_state = match result {
             Ok(Ok(_)) => {
@@ -207,7 +199,7 @@ impl SubscriberListener {
                     max_attempts,
                     queue,
                     ..
-                } = self.inner.job_registry.config_for(job_name);
+                } = self.job_registry.config_for(job_name);
 
                 if current_attempt < max_attempts {
                     error!(
@@ -270,6 +262,6 @@ impl SubscriberListener {
     // `Decode` traits.
     fn parse_queue_name<'a>(&self, message: &'a str) -> Option<&'a str> {
         let name = message.strip_prefix("q:")?;
-        self.inner.queue_names.contains(name).then_some(name)
+        self.queue_names.contains(name).then_some(name)
     }
 }
