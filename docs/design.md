@@ -36,7 +36,7 @@ graph TB
 # Communication diagram
 
 ```mermaid
-graph LR
+graph TB
     App
     App -- "calls" --> Publisher
 
