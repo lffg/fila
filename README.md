@@ -14,8 +14,8 @@ Consult the [Design](./docs/design.md) section on the documentation.
 Fila is inspired by the excellent [Oban] and [River] libraries, which also
 implement a job processing system on top of Postgres.
 
-[Oban]: https://github.com/riverqueue/river
-[River]: https://github.com/sorentwo/oban
+[Oban]: https://github.com/sorentwo/oban
+[River]: https://github.com/riverqueue/river
 
 ## License
 
