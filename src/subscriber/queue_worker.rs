@@ -122,14 +122,13 @@ impl QueueWorker {
             }
         }
 
-        trace!("shutting queue worker down; waiting for job workers to terminate");
-
         // Close the channel to ensure we don't receive any new job
         // notifications.
         self.rx.close();
 
-        // self.tasks.close();
-        // self.tasks.wait().await;
+        trace!("shutting queue worker down; waiting for job workers to terminate");
+        self.job_worker_tasks.close();
+        self.job_worker_tasks.wait().await;
     }
 
     #[instrument(
