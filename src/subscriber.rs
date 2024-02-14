@@ -31,6 +31,7 @@ pub struct Subscriber {
 impl Subscriber {
     /// Returns a new [subscriber builder](Builder). Consult its module-level
     /// documentation for more information.
+    #[must_use]
     pub fn builder() -> Builder {
         Builder::new()
     }
@@ -41,10 +42,18 @@ impl Subscriber {
     /// cancellation token provided by [`Builder::with_cancellation_token`]
     /// gets fulfilled.
     ///
+    /// # Errors
+    ///
     /// Fails to start if the database pool can't establish a connection or the
-    /// PostgreSQL listener fails to start. Errors related to jobs are
-    /// internally handled and exposed through the error-reporting facilities
-    /// provided by Fila.
+    /// Postgres listener fails to start. Errors related to jobs are internally
+    /// handled and exposed through the error-reporting facilities provided by
+    /// Fila.
+    ///
+    /// # Panics
+    ///
+    /// We try our best to avoid panics, as they'd crash the entire subscriber
+    /// task tree. If you experience a panic from this routine we kindly ask for
+    /// a bug report with a minimal reproducible example.
     pub async fn start(self) -> Result<()> {
         // Tries to connect to the database to minimize connection errors next
         sqlx::query("SELECT 1;")
@@ -81,7 +90,7 @@ impl Subscriber {
             queue_names: self.queue_names,
             cancellation_token: self.cancellation_token,
             coordinator_chan,
-            listener,
+            inner: listener,
         };
         let listener_task = tokio::spawn(async move {
             listener.listen().await;

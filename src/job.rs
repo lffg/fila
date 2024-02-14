@@ -18,6 +18,7 @@ pub trait Job: Send + Sync {
     /// There's no guarantee about how many times this function is called per
     /// job. Hence users are encouraged to *not* perform expensive computations
     /// to create a config.
+    #[must_use]
     fn config() -> Config {
         Config::default()
     }
@@ -60,6 +61,11 @@ pub struct Config {
 
 impl Config {
     /// Validates the configuration values.
+    ///
+    /// # Errors
+    ///
+    /// Fails if the config is not valid. The error variant contains the
+    /// appropriate message.
     pub fn validate(&self) -> Result<(), &'static str> {
         if self.max_attempts < 1 {
             return Err("max_attempts can't be smaller than 1");

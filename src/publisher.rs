@@ -8,6 +8,11 @@ use crate::{
 
 const INITIAL_ATTEMPT: i16 = 0;
 
+/// Saves the given job on the database and notifies the interest subscribers.
+///
+/// # Errors
+///
+/// Fails if the job couldn't be persisted on the database.
 pub async fn send<'c, J, E>(payload: J, db: E) -> Result<()>
 where
     J: Job + Serialize,
@@ -23,14 +28,14 @@ where
     E: sqlx::PgExecutor<'c>,
 {
     sqlx::query(
-        r#"
+        r"
         WITH insert AS (
             INSERT INTO fila.jobs
                     (id, queue, name, payload, attempts, state, scheduled_at)
             VALUES ($1, $2, $3, $4::JSONB, $5, 'available', now())
         )
         SELECT pg_notify($6, 'q:' || $2);
-        "#,
+        ",
     )
     .bind(uuid::Uuid::now_v7())
     .bind(config.queue)

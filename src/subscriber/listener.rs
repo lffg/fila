@@ -11,7 +11,8 @@ pub struct Listener {
     pub queue_names: HashSet<&'static str>,
     pub cancellation_token: CancellationToken,
     pub coordinator_chan: Sender<coordinator::Msg>,
-    pub listener: PgListener,
+    /// The underlying Postgres listener.
+    pub inner: PgListener,
 }
 
 impl Listener {
@@ -22,10 +23,10 @@ impl Listener {
                 biased;
 
                 () = self.cancellation_token.cancelled() => {
-                    self.listener.unlisten(PG_TOPIC_NAME).await.ok();
+                    self.inner.unlisten(PG_TOPIC_NAME).await.ok();
                     break;
                 },
-                notification = self.listener.recv() => {
+                notification = self.inner.recv() => {
                     self.handle_pg_notification(notification).await;
                 },
             }

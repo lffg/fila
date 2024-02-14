@@ -71,6 +71,7 @@ impl Builder<bp::Jobs<()>> {
     /// # Panics
     ///
     /// Panics if already registered a state of type `S`.
+    #[must_use]
     pub fn with_state<S, B>(mut self, state: &S, builder_fn: B) -> Builder<bp::Jobs<()>>
     where
         S: Clone,
@@ -95,6 +96,7 @@ impl<S> Builder<bp::Jobs<S>> {
     /// - If the provided configuration is invalid as per [`validate`].
     ///
     /// [`validate`]: crate::job::Config::validate
+    #[must_use]
     pub fn register<J>(mut self) -> Builder<bp::Jobs<S>>
     where
         J: job::Job<State = S>,
@@ -111,9 +113,7 @@ impl<S> Builder<bp::Jobs<S>> {
         }
 
         let duplicate = self.job_registry.register::<J>();
-        if duplicate {
-            panic!("already registered job with name {name:?}");
-        }
+        assert!(!duplicate, "already registered job with name {name:?}");
         self.queue_names.insert(config.queue);
 
         self
@@ -123,6 +123,7 @@ impl<S> Builder<bp::Jobs<S>> {
 impl<P: bp::GeneralConfiguration> Builder<P> {
     /// Uses the provided [`CancellationToken`] which later may be used to
     /// perform graceful shutdown of the subscriber-related tasks.
+    #[must_use]
     pub fn with_cancellation_token(
         mut self,
         cancellation_token: CancellationToken,
@@ -132,6 +133,7 @@ impl<P: bp::GeneralConfiguration> Builder<P> {
     }
 
     /// Provides the database pool.
+    #[must_use]
     pub fn with_pool(mut self, pool: PgPool) -> Builder<bp::HasPool> {
         self.pool = Some(pool);
         cast(self)
@@ -140,6 +142,8 @@ impl<P: bp::GeneralConfiguration> Builder<P> {
 
 impl Builder<bp::HasPool> {
     /// Returns a fully-configured and valid [`Subscriber`].
+    #[allow(clippy::missing_panics_doc)] // False positive
+    #[must_use]
     pub fn build(self) -> Subscriber {
         // All unwraps are safe due to the way this builder is implemented.
         Subscriber {
@@ -151,7 +155,7 @@ impl Builder<bp::HasPool> {
     }
 }
 
-#[inline(always)]
+#[inline]
 fn cast<A, B>(this: Builder<A>) -> Builder<B> {
     Builder {
         job_registry: this.job_registry,

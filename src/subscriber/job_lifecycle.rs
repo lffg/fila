@@ -38,7 +38,7 @@ pub async fn run_lifecycle(
     queue_name: &str,
 ) -> Result<LifecycleStatus> {
     trace!("acquiring job");
-    let Some(job) = acquire_available_job(&queue_name, &pool).await? else {
+    let Some(job) = acquire_available_job(queue_name, pool).await? else {
         return Ok(LifecycleStatus::NotFound);
     };
 
@@ -46,7 +46,7 @@ pub async fn run_lifecycle(
     tracing::Span::current().record("job_id", job.id.to_string());
 
     trace!("executing job");
-    dispatch_and_exec(cancellation_token.clone(), &pool, &job_registry, &job).await?;
+    dispatch_and_exec(cancellation_token.clone(), pool, job_registry, &job).await?;
 
     trace!("finished job lifecycle");
 
@@ -77,12 +77,12 @@ async fn acquire_available_job(queue: &str, pool: &PgPool) -> Result<Option<JobR
 
 async fn fetch_available<'c>(queue: &str, tx: &mut PgTx<'c>) -> Result<Option<JobRow>> {
     sqlx::query_as(
-        r#"
+        r"
         SELECT id, name, payload::TEXT, attempts FROM fila.jobs
             WHERE queue = $1 AND state = $2
             FOR UPDATE SKIP LOCKED
             LIMIT 1;
-        "#,
+        ",
     )
     .bind(queue)
     .bind(job::State::Available)
@@ -123,7 +123,7 @@ async fn dispatch_and_exec(
     let result = job_registry.dispatch_and_exec(ctx).await;
 
     let finish_state = match result {
-        Ok(Ok(_)) => {
+        Ok(Ok(())) => {
             trace!("job successful");
             job::State::Successful
         }
@@ -154,7 +154,7 @@ async fn dispatch_and_exec(
                     let new_attempt = current_attempt + 1;
                     trace!("scheduling new attempt ({new_attempt}/{max_attempts})");
                     sqlx::query(
-                        r#"
+                        r"
                         WITH upd AS (
                             UPDATE fila.jobs SET
                                 state = $1,
@@ -162,10 +162,10 @@ async fn dispatch_and_exec(
                             WHERE id = $2
                         )
                         SELECT pg_notify($3, 'q:' || $4);
-                        "#,
+                        ",
                     )
                     .bind(job::State::Available)
-                    .bind(&job.id)
+                    .bind(job.id)
                     .bind(PG_TOPIC_NAME)
                     .bind(queue)
                     .execute(pool)
@@ -201,7 +201,7 @@ async fn dispatch_and_exec(
         WHERE id = $1;
         ",
     )
-    .bind(&job.id)
+    .bind(job.id)
     .bind(finish_state)
     .execute(pool)
     .await

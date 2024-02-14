@@ -25,8 +25,8 @@ impl JobRegistry {
     /// Constructs a new job registry.
     pub fn new() -> Self {
         let mut registry = Self {
-            job_map: Default::default(),
-            state_map: Default::default(),
+            job_map: HashMap::new(),
+            state_map: HashMap::new(),
         };
         // Add the "default state", the unit value.
         // Otherwise, will fail to dispatch jobs that don't have it defined.

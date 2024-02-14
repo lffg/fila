@@ -153,6 +153,7 @@ impl QueueWorker {
         }
     }
 
+    #[allow(clippy::unused_async)]
     async fn attempt_process_job(&mut self) {
         if self.available_jobs == 0 {
             trace!("no more jobs");
