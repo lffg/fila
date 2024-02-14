@@ -6,6 +6,8 @@ use crate::{
     PG_TOPIC_NAME,
 };
 
+const INITIAL_ATTEMPT: i16 = 0;
+
 pub async fn send<'c, J, E>(payload: J, db: E) -> Result<()>
 where
     J: Job + Serialize,
@@ -24,16 +26,17 @@ where
         r#"
         WITH insert AS (
             INSERT INTO fila.jobs
-                    (id, queue, name, payload, state, attempts, scheduled_at)
-            VALUES ($1, $2, $3, $4::JSONB, 'available', 1, now())
+                    (id, queue, name, payload, attempts, state, scheduled_at)
+            VALUES ($1, $2, $3, $4::JSONB, $5, 'available', now())
         )
-        SELECT pg_notify($5, 'q:' || $2);
+        SELECT pg_notify($6, 'q:' || $2);
         "#,
     )
     .bind(uuid::Uuid::now_v7())
     .bind(config.queue)
     .bind(job_name)
     .bind(payload)
+    .bind(INITIAL_ATTEMPT)
     .bind(PG_TOPIC_NAME)
     .execute(db)
     .await

@@ -19,6 +19,9 @@ CREATE TABLE fila.jobs (
     "finished_at" TIMESTAMPTZ
 );
 
+COMMENT ON COLUMN fila.jobs.attempts IS
+    'The number of finished executions, including the successful one, if any';
+
 CREATE INDEX jobs_queue_state_idx
     ON fila.jobs ("queue", "state");
 

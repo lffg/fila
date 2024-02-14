@@ -1,3 +1,5 @@
+use std::cmp::Ordering;
+
 use sqlx::{FromRow, PgPool, Postgres, Transaction};
 use tokio_util::sync::CancellationToken;
 use tracing::error;
@@ -52,8 +54,7 @@ pub async fn run_lifecycle(
 }
 
 /// Fetches an available job and acquires it (i.e., mark the row as "processing"
-/// so that no other subscribers run it). Also increments the job's attempt
-/// count.
+/// so that no other subscribers run it).
 ///
 /// All errors are properly treated by this function. We just use the error
 /// variant to make the caller exit early in case of any errors.
@@ -67,7 +68,7 @@ async fn acquire_available_job(queue: &str, pool: &PgPool) -> Result<Option<JobR
         return Ok(None);
     };
 
-    mark_as_processing_and_increment_attempts(job.id, &mut tx).await?;
+    mark_as_processing(job.id, &mut tx).await?;
 
     tx.commit().await.with_ctx("failed to commit transaction")?;
 
@@ -90,19 +91,13 @@ async fn fetch_available<'c>(queue: &str, tx: &mut PgTx<'c>) -> Result<Option<Jo
     .with_ctx("failed to fetch available job")
 }
 
-async fn mark_as_processing_and_increment_attempts<'c>(id: Uuid, tx: &mut PgTx<'c>) -> Result<()> {
-    sqlx::query(
-        r#"
-        UPDATE fila.jobs
-            SET state = $2, attempts = attempts + 1
-            WHERE id = $1;
-        "#,
-    )
-    .bind(id)
-    .bind(job::State::Processing)
-    .execute(&mut **tx)
-    .await
-    .with_ctx("failed to mark job as processing")?;
+async fn mark_as_processing<'c>(id: Uuid, tx: &mut PgTx<'c>) -> Result<()> {
+    sqlx::query(r"UPDATE fila.jobs SET state = $2 WHERE id = $1;")
+        .bind(id)
+        .bind(job::State::Processing)
+        .execute(&mut **tx)
+        .await
+        .with_ctx("failed to mark job as processing")?;
     Ok(())
 }
 
@@ -114,7 +109,12 @@ async fn dispatch_and_exec(
 ) -> Result<()> {
     // TODO: Better error handling.
 
-    let current_attempt = u16::try_from(job.attempts).unwrap();
+    let previous_attempts = u16::try_from(job.attempts).unwrap();
+
+    // The "current attempt" is only marked in the database *after* the job is
+    // executed, so we must increment it manually here.
+    let current_attempt = previous_attempts + 1;
+
     let ctx = magic::ErasedJobContext {
         name: &job.name,
         encoded_payload: &job.payload,
@@ -144,34 +144,46 @@ async fn dispatch_and_exec(
                 ..
             } = job_registry.config_for(&job.name);
 
-            if current_attempt < max_attempts {
-                error!(
-                    ?error,
-                    "job failed attempt ({current_attempt}/{max_attempts})"
-                );
-                let new_attempt = current_attempt + 1;
-                trace!("scheduling new attempt ({new_attempt}/{max_attempts})");
-                sqlx::query(
-                    r#"
-                    WITH upd AS (UPDATE fila.jobs SET state = $1 WHERE id = $2)
-                    SELECT pg_notify($3, 'q:' || $4);
-                    "#,
-                )
-                .bind(job::State::Available)
-                .bind(&job.id)
-                .bind(PG_TOPIC_NAME)
-                .bind(queue)
-                .execute(pool)
-                .await
-                .unwrap();
+            match current_attempt.cmp(&max_attempts) {
+                // There are available attempts, perform retry.
+                Ordering::Less => {
+                    error!(
+                        ?error,
+                        "job failed attempt ({current_attempt}/{max_attempts})"
+                    );
+                    let new_attempt = current_attempt + 1;
+                    trace!("scheduling new attempt ({new_attempt}/{max_attempts})");
+                    sqlx::query(
+                        r#"
+                        WITH upd AS (
+                            UPDATE fila.jobs SET
+                                state = $1,
+                                attempts = attempts + 1
+                            WHERE id = $2
+                        )
+                        SELECT pg_notify($3, 'q:' || $4);
+                        "#,
+                    )
+                    .bind(job::State::Available)
+                    .bind(&job.id)
+                    .bind(PG_TOPIC_NAME)
+                    .bind(queue)
+                    .execute(pool)
+                    .await
+                    .unwrap();
 
-                return Ok(());
-            } else {
-                error!(
-                    ?error,
-                    "job failed final attempt ({current_attempt}/{max_attempts})"
-                );
-                job::State::Cancelled
+                    return Ok(());
+                }
+                // No more retries available; cancel job.
+                Ordering::Equal => {
+                    error!(
+                        ?error,
+                        "job failed final attempt ({current_attempt}/{max_attempts})"
+                    );
+                    job::State::Cancelled
+                }
+                // Job should have been cancelled on the previous attempt.
+                Ordering::Greater => unreachable!("broken invariant: invalid attempt"),
             }
         }
         Err(error) => {
@@ -180,12 +192,20 @@ async fn dispatch_and_exec(
         }
     };
 
-    sqlx::query(r"UPDATE fila.jobs SET state = $2, finished_at = now() WHERE id = $1;")
-        .bind(&job.id)
-        .bind(finish_state)
-        .execute(pool)
-        .await
-        .unwrap();
+    sqlx::query(
+        r"
+        UPDATE fila.jobs SET
+            state = $2,
+            attempts = attempts + 1,
+            finished_at = now()
+        WHERE id = $1;
+        ",
+    )
+    .bind(&job.id)
+    .bind(finish_state)
+    .execute(pool)
+    .await
+    .unwrap();
 
     Ok(())
 }

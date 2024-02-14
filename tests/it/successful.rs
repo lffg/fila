@@ -8,11 +8,16 @@ use std::{
 
 use fila::job;
 use serde::{Deserialize, Serialize};
-use sqlx::{Executor, PgPool};
+use sqlx::{Executor, PgPool, Row};
 use tokio::time::sleep;
 use tokio_util::sync::CancellationToken;
 
 use crate::SCHEMA_QUERY;
+
+const MAGIC_FACTOR_A: u32 = 3;
+const MAGIC_FACTOR_B: u32 = 7;
+
+static OUTER_COUNTER: AtomicU32 = AtomicU32::new(0);
 
 #[derive(Serialize, Deserialize)]
 struct MyJobThatWillSucceed {
@@ -31,10 +36,6 @@ impl job::Job for MyJobThatWillSucceed {
         Ok(())
     }
 }
-
-const MAGIC_FACTOR_A: u32 = 3;
-const MAGIC_FACTOR_B: u32 = 7;
-static OUTER_COUNTER: AtomicU32 = AtomicU32::new(0);
 
 #[sqlx::test]
 async fn test(pool: PgPool) {
@@ -71,11 +72,13 @@ async fn test(pool: PgPool) {
     );
     assert_eq!(state.load(Ordering::SeqCst), 1);
 
-    let state: String = sqlx::query_scalar("SELECT state::TEXT FROM fila.jobs")
+    let row = sqlx::query("SELECT attempts, state::TEXT FROM fila.jobs")
         .fetch_one(&pool)
         .await
         .unwrap();
-    assert_eq!(state, "successful");
+
+    assert_eq!(row.get::<i16, _>("attempts"), 1);
+    assert_eq!(row.get::<String, _>("state"), "successful");
 
     ct.cancel();
 }

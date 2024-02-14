@@ -28,7 +28,9 @@ pub struct Context<S> {
     /// The job's state, which is used to pass shared state between jobs.
     pub state: S,
 
-    /// The attempt number of the job. Starts with 0 if it's the first attempt.
+    /// The number of the current attempt of the corresponding job instance.
+    ///
+    /// Starts with `1` for the first execution.
     pub attempt: u16,
 }
 
@@ -42,9 +44,9 @@ pub struct Config {
     pub queue: &'static str,
 
     /// The maximum number of attempts for a given job, _including_ the first
-    /// execution. By default, is set to `1`, meaning that Fila will only
-    /// execute it once (the "first attempt"), without any retries in case of
-    /// failures.
+    /// execution and successful ones, if any. By default, is set to `1`,
+    /// meaning that Fila will only execute it once (the "first execution"),
+    /// *without* any retries in case of failures.
     ///
     /// ### Value constraints
     ///
