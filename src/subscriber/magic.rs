@@ -6,6 +6,7 @@ use std::{
 
 use async_trait::async_trait;
 use serde::de::DeserializeOwned;
+use tokio_util::sync::CancellationToken;
 
 use crate::{
     error::{Result, ResultExt},
@@ -97,6 +98,7 @@ impl JobRegistry {
                 let ctx = job::Context {
                     state,
                     attempt: ctx.attempt,
+                    cancellation_token: ctx.cancellation_token,
                 };
 
                 Ok(async move { J::exec(payload, &ctx).await })
@@ -115,6 +117,7 @@ pub struct ErasedJobContext<'a> {
     pub name: job::BorrowedName<'a>,
     pub encoded_payload: &'a str,
     pub attempt: u16,
+    pub cancellation_token: CancellationToken,
 }
 
 /// An object-safe job runner trait.
