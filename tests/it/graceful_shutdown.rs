@@ -34,7 +34,7 @@ async fn test(pool: PgPool) {
     pool.execute(SCHEMA_QUERY).await.unwrap();
 
     let subscriber = fila::subscriber::Subscriber::builder()
-    .register::<MyJobThatWillCancellated>()
+        .register::<MyJobThatWillCancellated>()
         .with_cancellation_token(ct.clone())
         .with_pool(pool.clone())
         .build();
@@ -46,13 +46,13 @@ async fn test(pool: PgPool) {
     let send_pool = pool.clone();
     tokio::spawn(async move {
         sleep(Duration::from_millis(10)).await;
-        fila::send(MyJobThatWillCancellated, &send_pool).await.unwrap();
+        fila::send(MyJobThatWillCancellated, &send_pool)
+            .await
+            .unwrap();
     });
 
     sleep(Duration::from_millis(50)).await;
-
     ct.cancel();
-
     sleep(Duration::from_millis(50)).await;
 
     let row = sqlx::query("SELECT attempts, state::TEXT FROM fila.jobs")
