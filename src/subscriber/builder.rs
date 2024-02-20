@@ -6,11 +6,11 @@ use std::{
 
 use serde::de::DeserializeOwned;
 use sqlx::PgPool;
-use tokio_util::sync::CancellationToken;
 
 use crate::{
     job,
     subscriber::{magic, Subscriber},
+    sync::CancellationToken,
 };
 
 /// Support shenanigans for the builder pattern.

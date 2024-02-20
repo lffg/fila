@@ -1,7 +1,6 @@
 use std::cmp::Ordering;
 
 use sqlx::{FromRow, PgPool, Postgres, Transaction};
-use tokio_util::sync::CancellationToken;
 use tracing::{error, instrument, trace};
 use uuid::Uuid;
 
@@ -9,6 +8,7 @@ use crate::{
     error::{Result, ResultExt},
     job,
     subscriber::magic::{self, JobRegistry},
+    sync::CancellationNotify,
     PG_TOPIC_NAME,
 };
 
@@ -31,7 +31,7 @@ pub enum LifecycleStatus {
 
 #[instrument(fields(job_id), skip_all)]
 pub async fn run_lifecycle(
-    cancellation_token: CancellationToken,
+    cancellation_notify: CancellationNotify,
     pool: &PgPool,
     job_registry: &JobRegistry,
     queue_name: &str,
@@ -45,7 +45,7 @@ pub async fn run_lifecycle(
     tracing::Span::current().record("job_id", job.id.to_string());
 
     trace!("executing job");
-    dispatch_and_exec(cancellation_token.clone(), pool, job_registry, &job).await?;
+    dispatch_and_exec(cancellation_notify.clone(), pool, job_registry, &job).await?;
 
     trace!("finished job lifecycle");
 
@@ -101,7 +101,7 @@ async fn mark_as_processing<'c>(id: Uuid, tx: &mut PgTx<'c>) -> Result<()> {
 }
 
 async fn dispatch_and_exec(
-    cancellation_token: CancellationToken,
+    cancellation_notify: CancellationNotify,
     pool: &PgPool,
     job_registry: &JobRegistry,
     job: &JobRow,
@@ -118,7 +118,7 @@ async fn dispatch_and_exec(
         name: &job.name,
         encoded_payload: &job.payload,
         attempt: current_attempt,
-        cancellation_token,
+        cancellation_notify,
     };
     let result = job_registry.dispatch_and_exec(ctx).await;
 

@@ -1,11 +1,11 @@
 use std::{borrow::Cow, collections::HashSet, sync::Arc};
 
 use sqlx::{postgres::PgListener, PgPool};
-use tokio_util::sync::CancellationToken;
 
 use crate::{
     error::{Result, ResultExt},
     subscriber::{coordinator::Coordinator, listener::Listener},
+    sync::CancellationToken,
     PG_TOPIC_NAME,
 };
 
@@ -77,7 +77,7 @@ impl Subscriber {
         let (coordinator_chan, coordinator) = Coordinator::new(
             Arc::clone(&job_registry),
             self.pool,
-            self.cancellation_token.clone(),
+            self.cancellation_token.clone_inner(),
         );
         let queues = clone_queue_names(&self.queue_names);
         let coordinator_task = tokio::spawn(async move {
@@ -87,7 +87,7 @@ impl Subscriber {
         // Starts the listener task.
         let listener = Listener {
             queue_names: self.queue_names,
-            cancellation_token: self.cancellation_token,
+            cancellation_notify: self.cancellation_token.clone_inner(),
             coordinator_chan,
             inner: listener,
         };
@@ -102,6 +102,8 @@ impl Subscriber {
         // application is probably in an inconsistent state.
         coordinator_task.await.unwrap();
         listener_task.await.unwrap();
+
+        self.cancellation_token.notify_finished_cancellation();
 
         Ok(())
     }

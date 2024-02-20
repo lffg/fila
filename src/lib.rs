@@ -4,6 +4,7 @@ pub mod publisher;
 pub use publisher::send;
 
 pub mod subscriber;
+pub mod sync;
 
 pub mod error;
 

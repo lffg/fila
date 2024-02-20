@@ -2,14 +2,13 @@ use std::collections::HashSet;
 
 use sqlx::postgres::{PgListener, PgNotification};
 use tokio::{select, sync::mpsc::Sender};
-use tokio_util::sync::CancellationToken;
 use tracing::{trace, warn};
 
-use crate::{subscriber::coordinator, PG_TOPIC_NAME};
+use crate::{subscriber::coordinator, sync::CancellationNotify, PG_TOPIC_NAME};
 
 pub struct Listener {
     pub queue_names: HashSet<&'static str>,
-    pub cancellation_token: CancellationToken,
+    pub cancellation_notify: CancellationNotify,
     pub coordinator_chan: Sender<coordinator::Msg>,
     /// The underlying Postgres listener.
     pub inner: PgListener,
@@ -22,7 +21,7 @@ impl Listener {
             select! {
                 biased;
 
-                () = self.cancellation_token.cancelled() => {
+                () = self.cancellation_notify.cancelled() => {
                     self.inner.unlisten(PG_TOPIC_NAME).await.ok();
                     break;
                 },

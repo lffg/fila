@@ -6,11 +6,10 @@ use std::{
     time::Duration,
 };
 
-use fila::job;
+use fila::{job, sync::CancellationToken};
 use serde::{Deserialize, Serialize};
 use sqlx::{Executor, PgPool, Row};
 use tokio::time::sleep;
-use tokio_util::sync::CancellationToken;
 
 use crate::SCHEMA_QUERY;
 
@@ -80,5 +79,5 @@ async fn test(pool: PgPool) {
     assert_eq!(row.get::<i16, _>("attempts"), 1);
     assert_eq!(row.get::<String, _>("state"), "successful");
 
-    ct.cancel();
+    ct.cancel_and_wait().await;
 }

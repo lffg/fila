@@ -5,10 +5,16 @@ use tokio::{
     select,
     sync::mpsc::{self, Receiver, Sender},
 };
-use tokio_util::{sync::CancellationToken, task::TaskTracker};
+use tokio_util::task::TaskTracker;
 use tracing::{instrument, trace, warn};
 
-use crate::subscriber::{magic::JobRegistry, queue_worker, queue_worker::QueueWorker};
+use crate::{
+    subscriber::{
+        magic::JobRegistry,
+        queue_worker::{self, QueueWorker},
+    },
+    sync::CancellationNotify,
+};
 
 pub type QueueName = Cow<'static, str>;
 
@@ -21,7 +27,7 @@ pub struct Coordinator {
     queue_worker_map: HashMap<QueueName, QueueWorkerHandle>,
     queue_workers_tracker: TaskTracker,
     rx: Receiver<Msg>,
-    cancellation_token: CancellationToken,
+    cancellation_notify: CancellationNotify,
     job_registry: Arc<JobRegistry>,
     pool: PgPool,
 }
@@ -30,7 +36,7 @@ impl Coordinator {
     pub fn new(
         job_registry: Arc<JobRegistry>,
         pool: PgPool,
-        cancellation_token: CancellationToken,
+        cancellation_notify: CancellationNotify,
     ) -> (Sender<Msg>, Self) {
         const COORDINATOR_CHANNEL_CAPACITY: usize = 32;
         let (tx, rx) = mpsc::channel(COORDINATOR_CHANNEL_CAPACITY);
@@ -40,7 +46,7 @@ impl Coordinator {
             pool,
             queue_worker_map: HashMap::new(),
             queue_workers_tracker: TaskTracker::new(),
-            cancellation_token,
+            cancellation_notify,
             rx,
         };
         (tx, coordinator)
@@ -53,7 +59,7 @@ impl Coordinator {
                 name.clone(),
                 Arc::clone(&self.job_registry),
                 self.pool.clone(),
-                self.cancellation_token.clone(),
+                self.cancellation_notify.clone(),
             );
             self.queue_workers_tracker.spawn(async move {
                 queue_worker.start().await;
@@ -75,7 +81,7 @@ impl Coordinator {
                     self.handle_message(message).await;
 
                 },
-                () = self.cancellation_token.cancelled() => break,
+                () = self.cancellation_notify.cancelled() => break,
             }
         }
 

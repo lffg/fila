@@ -8,10 +8,13 @@ use tokio::{
         Semaphore, TryAcquireError,
     },
 };
-use tokio_util::{sync::CancellationToken, task::TaskTracker};
+use tokio_util::task::TaskTracker;
 use tracing::{instrument, trace};
 
-use crate::subscriber::{coordinator::QueueName, job_lifecycle, magic::JobRegistry};
+use crate::{
+    subscriber::{coordinator::QueueName, job_lifecycle, magic::JobRegistry},
+    sync::CancellationNotify,
+};
 
 // TODO: Parameterize this.
 const DEFAULT_QUEUE_CONCURRENCY_LIMIT: usize = 5;
@@ -39,7 +42,7 @@ enum InternalMsg {
 struct JobContext {
     queue_name: QueueName,
     chan: Sender<Msg>,
-    cancellation_token: CancellationToken,
+    cancellation_notify: CancellationNotify,
     job_registry: Arc<JobRegistry>,
     pool: PgPool,
 }
@@ -69,7 +72,7 @@ pub struct QueueWorker {
     job_worker_semaphore: Arc<Semaphore>,
     job_worker_tasks: TaskTracker,
     rx: Receiver<Msg>,
-    cancellation_token: CancellationToken,
+    cancellation_notify: CancellationNotify,
     job_context: Arc<JobContext>,
 }
 
@@ -78,7 +81,7 @@ impl QueueWorker {
         queue_name: QueueName,
         job_registry: Arc<JobRegistry>,
         pool: PgPool,
-        cancellation_token: CancellationToken,
+        cancellation_notify: CancellationNotify,
     ) -> (Sender<Msg>, Self) {
         // XX: Honestly, I don't have *any* idea of what's the best channel
         // capacity to configure here.
@@ -91,7 +94,7 @@ impl QueueWorker {
         let job_context = JobContext {
             queue_name: queue_name.clone(),
             chan: tx.clone(),
-            cancellation_token: cancellation_token.clone(),
+            cancellation_notify: cancellation_notify.clone(),
             job_registry,
             pool,
         };
@@ -102,7 +105,7 @@ impl QueueWorker {
             job_worker_semaphore: Arc::new(Semaphore::new(DEFAULT_QUEUE_CONCURRENCY_LIMIT)),
             job_worker_tasks: TaskTracker::new(),
             rx,
-            cancellation_token,
+            cancellation_notify,
             job_context: Arc::new(job_context),
         };
         (tx, qw)
@@ -119,7 +122,7 @@ impl QueueWorker {
                     self.handle_message(message).await;
 
                 },
-                () =  self.cancellation_token.cancelled() => break,
+                () =  self.cancellation_notify.cancelled() => break,
             }
         }
 
@@ -174,7 +177,7 @@ impl QueueWorker {
             let _permit = permit; // Release permit after task ends.
 
             let status = job_lifecycle::run_lifecycle(
-                ctx.cancellation_token.clone(),
+                ctx.cancellation_notify.clone(),
                 &ctx.pool,
                 &ctx.job_registry,
                 &ctx.queue_name,

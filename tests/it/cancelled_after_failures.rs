@@ -3,11 +3,10 @@ use std::{
     time::Duration,
 };
 
-use fila::job;
+use fila::{job, sync::CancellationToken};
 use serde::{Deserialize, Serialize};
 use sqlx::{Executor, PgPool, Row as _};
 use tokio::time::sleep;
-use tokio_util::sync::CancellationToken;
 
 use crate::SCHEMA_QUERY;
 
@@ -74,5 +73,5 @@ async fn test(pool: PgPool) {
     assert_eq!(attempt, MAX_ATTEMPTS);
     assert_eq!(COUNTER.load(Ordering::SeqCst), MAX_ATTEMPTS);
 
-    ct.cancel();
+    ct.cancel_and_wait().await;
 }
