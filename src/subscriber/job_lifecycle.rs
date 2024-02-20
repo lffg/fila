@@ -101,7 +101,7 @@ async fn mark_as_processing<'c>(id: Uuid, tx: &mut PgTx<'c>) -> Result<()> {
 }
 
 async fn dispatch_and_exec(
-    _cancellation_token: CancellationToken,
+    cancellation_token: CancellationToken,
     pool: &PgPool,
     job_registry: &JobRegistry,
     job: &JobRow,
@@ -118,6 +118,7 @@ async fn dispatch_and_exec(
         name: &job.name,
         encoded_payload: &job.payload,
         attempt: current_attempt,
+        cancellation_token,
     };
     let result = job_registry.dispatch_and_exec(ctx).await;
 

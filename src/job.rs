@@ -1,4 +1,5 @@
 use std::{error::Error as StdError, future::Future, time::Duration};
+use tokio_util::sync::CancellationToken;
 
 pub type Name = &'static str;
 pub type BorrowedName<'a> = &'a str;
@@ -33,6 +34,12 @@ pub struct Context<S> {
     ///
     /// Starts with `1` for the first execution.
     pub attempt: u16,
+
+    /// By default, when handling graceful shutdown, Fila will give a timeout
+    /// for currently-executing jobs to finish. To properly adhere to the
+    /// graceful shutdown procedures, jobs should listen for termination events
+    /// provided by this token.
+    pub cancellation_token: CancellationToken,
 }
 
 pub const DEFAULT_QUEUE: &str = "default";

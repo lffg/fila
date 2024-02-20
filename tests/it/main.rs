@@ -1,4 +1,5 @@
 mod cancelled_after_failures;
+mod graceful_shutdown;
 mod successful;
 
 static SCHEMA_QUERY: &str = include_str!("../../db/schema.sql");
