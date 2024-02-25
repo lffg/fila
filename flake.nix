@@ -1,0 +1,45 @@
+{
+  inputs = {
+    nixpkgs.url = "github:nixos/nixpkgs/release-23.11";
+    rust-overlay.url = "github:oxalica/rust-overlay";
+    rust-overlay.inputs.nixpkgs.follows = "nixpkgs";
+    flake-utils.url = "github:numtide/flake-utils";
+  };
+
+  outputs = {
+    self,
+    nixpkgs,
+    rust-overlay,
+    flake-utils,
+  }:
+    flake-utils.lib.eachDefaultSystem (system: let
+      overlays = [(import rust-overlay)];
+      pkgs = import nixpkgs {
+        inherit system overlays;
+      };
+      inherit (pkgs) lib;
+      inherit (pkgs.stdenv) isDarwin;
+    in {
+      devShells.default = pkgs.mkShell {
+        name = "fila";
+        packages = let
+          commonPackages = with pkgs; [
+            (rust-bin.stable."1.76.0".default.override {
+              extensions = ["rust-src" "rust-analyzer"];
+            })
+            postgresql_15
+            gnumake
+            pkg-config
+            llvmPackages_16.llvm
+            llvmPackages_16.bintools
+            libiconv
+          ];
+          darwinPackages = lib.optionals isDarwin (with pkgs.darwin.apple_sdk.frameworks; [
+            CoreFoundation
+            CoreServices
+            SystemConfiguration
+          ]);
+        in (commonPackages ++ darwinPackages);
+      };
+    });
+}
