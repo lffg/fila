@@ -142,7 +142,7 @@ impl<P: bp::GeneralConfiguration> Builder<P> {
 
 impl Builder<bp::HasPool> {
     /// Returns a fully-configured and valid [`Subscriber`].
-    #[allow(clippy::missing_panics_doc)] // False positive
+    #[allow(clippy::missing_panics_doc)]
     #[must_use]
     pub fn build(self) -> Subscriber {
         // All unwraps are safe due to the way this builder is implemented.

@@ -1,4 +1,4 @@
-//! Fila's error types.
+#![allow(clippy::module_name_repetitions)]
 
 use thiserror::Error;
 
