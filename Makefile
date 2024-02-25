@@ -22,8 +22,7 @@ ifeq ($(NOCAPTURE),1)
 endif
 
 .PHONY: all
-all:
-	@exit 0
+all: check test
 
 .PHONY: clean
 clean: db.stop
@@ -31,7 +30,12 @@ clean: db.stop
 
 .PHONY: check
 check:
+	cargo-nightly-fmt --check
 	cargo clippy --all-features --all
+
+.PHONY: fmt
+fmt:
+	cargo-nightly-fmt
 
 .PHONY: test
 test: $(POSTGRES_SERVER)

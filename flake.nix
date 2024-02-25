@@ -24,11 +24,25 @@
         name = "fila";
         packages = let
           commonPackages = with pkgs; [
+            # The usual Rust profile
             (rust-bin.stable."1.76.0".default.override {
               extensions = ["rust-src" "rust-analyzer"];
             })
+            # We need a nightly version of rustfmt to format this crate
+            (writeShellApplication {
+              name = "cargo-nightly-fmt";
+              runtimeInputs = [
+                (rust-bin.selectLatestNightlyWith (toolchain:
+                  toolchain.minimal.override {
+                    extensions = ["rustfmt"];
+                  }))
+              ];
+              text = ''cargo fmt "$@"'';
+            })
+
             postgresql_15
             gnumake
+
             pkg-config
             llvmPackages_16.llvm
             llvmPackages_16.bintools
