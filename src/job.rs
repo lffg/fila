@@ -1,4 +1,6 @@
-use std::{error::Error as StdError, future::Future, time::Duration};
+use std::{error::Error as StdError, fmt, future::Future, time::Duration};
+
+use uuid::Uuid;
 
 use crate::sync::CancellationNotify;
 
@@ -23,6 +25,16 @@ pub trait Job: Send + Sync {
     #[must_use]
     fn config() -> Config {
         Config::default()
+    }
+}
+
+/// An opaque job ID.
+#[derive(Copy, Clone, PartialEq, Eq, Hash)]
+pub struct Id(pub(crate) Uuid);
+
+impl fmt::Debug for Id {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Id({})", self.0)
     }
 }
 
