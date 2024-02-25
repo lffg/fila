@@ -52,7 +52,7 @@ impl<S> Context<S> {
 
 pub const DEFAULT_QUEUE: &str = "default";
 pub const DEFAULT_MAX_ATTEMPTS: u16 = 1;
-pub const DEFAULT_TIMEOUT: Option<Duration> = None;
+pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(60);
 
 #[derive(Debug, Clone)]
 pub struct Config {
@@ -70,8 +70,8 @@ pub struct Config {
     /// - Can't be greater than [`i16::MAX`].
     pub max_attempts: u16,
 
-    /// The timeout for the job execution. By default, set to `None`.
-    pub timeout: Option<Duration>,
+    /// The timeout for the job execution. By default, set to `1` minute.
+    pub timeout: Duration,
 }
 
 impl Config {
@@ -159,7 +159,7 @@ mod tests {
         let mut config = Config {
             queue: "default",
             max_attempts: 1,
-            timeout: None,
+            timeout: DEFAULT_TIMEOUT,
         };
 
         assert!(config.validate().is_ok());
