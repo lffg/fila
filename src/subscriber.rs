@@ -3,7 +3,7 @@ use std::{borrow::Cow, collections::HashSet, sync::Arc};
 use sqlx::{postgres::PgListener, PgPool};
 
 use crate::{
-    error::{Result, ResultExt},
+    error::{ResultExt, SetupError},
     subscriber::{coordinator::Coordinator, listener::Listener},
     sync::CancellationToken,
     PG_TOPIC_NAME,
@@ -53,21 +53,21 @@ impl Subscriber {
     /// We try our best to avoid panics, as they'd crash the entire subscriber
     /// task tree. If you experience a panic from this routine we kindly ask for
     /// a bug report with a minimal reproducible example.
-    pub async fn start(self) -> Result<()> {
+    pub async fn start(self) -> Result<(), SetupError> {
         // Tries to connect to the database to minimize connection errors next
         sqlx::query("SELECT 1;")
             .fetch_one(&self.pool)
             .await
-            .with_ctx("failed to connect to the database")?;
+            .map_err_into(SetupError::DatabaseFailedToConnect)?;
 
         // Starts the actual PostgreSQL topic listener.
         let mut listener = PgListener::connect_with(&self.pool)
             .await
-            .with_ctx("failed to create postgres listener")?;
+            .map_err_into(SetupError::DatabaseFailedToCreateListener)?;
         listener
             .listen(PG_TOPIC_NAME)
             .await
-            .with_ctx("failed to listen for postgres topic")?;
+            .map_err_into(SetupError::DatabaseFailedToListen)?;
 
         // The job registry is shared between all queue workers, which are
         // responsible for the actual job dispatch.

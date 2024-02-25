@@ -5,7 +5,7 @@ use tracing::{error, instrument, trace};
 use uuid::Uuid;
 
 use crate::{
-    error::{Result, ResultExt},
+    error::{InternalError, ResultExt},
     job,
     subscriber::magic::{self, JobRegistry},
     sync::CancellationNotify,
@@ -35,7 +35,7 @@ pub async fn run_lifecycle(
     pool: &PgPool,
     job_registry: &JobRegistry,
     queue_name: &str,
-) -> Result<LifecycleStatus> {
+) -> Result<LifecycleStatus, InternalError> {
     trace!("acquiring job");
     let Some(job) = acquire_available_job(queue_name, pool).await? else {
         return Ok(LifecycleStatus::NotFound);
@@ -57,11 +57,14 @@ pub async fn run_lifecycle(
 ///
 /// All errors are properly treated by this function. We just use the error
 /// variant to make the caller exit early in case of any errors.
-async fn acquire_available_job(queue: &str, pool: &PgPool) -> Result<Option<JobRow>> {
+async fn acquire_available_job(
+    queue: &str,
+    pool: &PgPool,
+) -> Result<Option<JobRow>, InternalError> {
     let mut tx = pool
         .begin()
         .await
-        .with_ctx("failed to acquire transaction")?;
+        .map_err_into(InternalError::DatabaseFailedToAcquireTransaction)?;
 
     let Some(job) = fetch_available(queue, &mut tx).await? else {
         return Ok(None);
@@ -69,12 +72,17 @@ async fn acquire_available_job(queue: &str, pool: &PgPool) -> Result<Option<JobR
 
     mark_as_processing(job.id, &mut tx).await?;
 
-    tx.commit().await.with_ctx("failed to commit transaction")?;
+    tx.commit()
+        .await
+        .map_err_into(InternalError::DatabaseFailedToCommitTransaction)?;
 
     Ok(Some(job))
 }
 
-async fn fetch_available<'c>(queue: &str, tx: &mut PgTx<'c>) -> Result<Option<JobRow>> {
+async fn fetch_available<'c>(
+    queue: &str,
+    tx: &mut PgTx<'c>,
+) -> Result<Option<JobRow>, InternalError> {
     sqlx::query_as(
         r"
         SELECT id, name, payload::TEXT, attempts FROM fila.jobs
@@ -87,16 +95,16 @@ async fn fetch_available<'c>(queue: &str, tx: &mut PgTx<'c>) -> Result<Option<Jo
     .bind(job::State::Available)
     .fetch_optional(&mut **tx)
     .await
-    .with_ctx("failed to fetch available job")
+    .map_err_into(InternalError::DatabaseFailedToFetchJob)
 }
 
-async fn mark_as_processing<'c>(id: Uuid, tx: &mut PgTx<'c>) -> Result<()> {
+async fn mark_as_processing<'c>(id: Uuid, tx: &mut PgTx<'c>) -> Result<(), InternalError> {
     sqlx::query(r"UPDATE fila.jobs SET state = $2 WHERE id = $1;")
         .bind(id)
         .bind(job::State::Processing)
         .execute(&mut **tx)
         .await
-        .with_ctx("failed to mark job as processing")?;
+        .map_err_into(InternalError::DatabaseFailedToMarkJob)?;
     Ok(())
 }
 
@@ -105,7 +113,7 @@ async fn dispatch_and_exec(
     pool: &PgPool,
     job_registry: &JobRegistry,
     job: &JobRow,
-) -> Result<()> {
+) -> Result<(), InternalError> {
     // TODO: Better error handling.
 
     let previous_attempts = u16::try_from(job.attempts).unwrap();

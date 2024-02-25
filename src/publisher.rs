@@ -1,7 +1,7 @@
 use serde::Serialize;
 
 use crate::{
-    error::{Result, ResultExt},
+    error::{JobPublishError, ResultExt},
     job::{Config, Job},
     PG_TOPIC_NAME,
 };
@@ -13,17 +13,23 @@ const INITIAL_ATTEMPT: i16 = 0;
 /// # Errors
 ///
 /// Fails if the job couldn't be persisted on the database.
-pub async fn send<'c, J, E>(payload: J, db: E) -> Result<()>
+pub async fn send<'c, J, E>(payload: J, db: E) -> Result<(), JobPublishError>
 where
     J: Job + Serialize,
     E: sqlx::PgExecutor<'c>,
 {
-    let payload = serde_json::to_string(&payload).with_ctx("failed to serialize job payload")?;
+    let payload =
+        serde_json::to_string(&payload).map_err_into(JobPublishError::PayloadFailedToSerialize)?;
     let config = J::config();
     send_impl(db, &payload, J::NAME, &config).await
 }
 
-async fn send_impl<'c, E>(db: E, payload: &str, job_name: &str, config: &Config) -> Result<()>
+async fn send_impl<'c, E>(
+    db: E,
+    payload: &str,
+    job_name: &str,
+    config: &Config,
+) -> Result<(), JobPublishError>
 where
     E: sqlx::PgExecutor<'c>,
 {
@@ -45,6 +51,6 @@ where
     .bind(PG_TOPIC_NAME)
     .execute(db)
     .await
-    .with_ctx("failed to insert new job")?;
-    Ok(())
+    .map_err_into(JobPublishError::DatabaseFailedToSave)
+    .map(drop)
 }

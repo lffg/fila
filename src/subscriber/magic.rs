@@ -8,7 +8,7 @@ use async_trait::async_trait;
 use serde::de::DeserializeOwned;
 
 use crate::{
-    error::{Result, ResultExt},
+    error::{InternalError, JobExecutionError, ResultExt},
     job,
     sync::CancellationNotify,
 };
@@ -44,7 +44,7 @@ impl JobRegistry {
     pub async fn dispatch_and_exec(
         &self,
         ctx: ErasedJobContext<'_>,
-    ) -> Result<Result<(), job::Error>> {
+    ) -> Result<Result<(), job::Error>, InternalError> {
         let job_handle = &self.job_map[ctx.name];
         job_handle.exec(ctx, &self.state_map).await
     }
@@ -85,7 +85,8 @@ impl JobRegistry {
         let erased_job = Box::new(ClosureErasedJob {
             run: move |ctx: ErasedJobContext<'_>, state_map: &TypeMap| {
                 let payload: J = serde_json::from_str(ctx.encoded_payload)
-                    .with_ctx("failed to deserialize job during dispatch")?;
+                    .map_err_into(JobExecutionError::PayloadFailedToDeserialize)
+                    .map_err_into(InternalError::JobExecution)?;
 
                 // SAFETY: These unwraps are safe since the subscriber builder API
                 // guarantees that a given `Job` with a `State` `T` can only be
@@ -131,7 +132,7 @@ trait ErasedJob {
         &self,
         ctx: ErasedJobContext<'_>,
         state_map: &TypeMap,
-    ) -> Result<Result<(), job::Error>>;
+    ) -> Result<Result<(), job::Error>, InternalError>;
 
     fn config(&self) -> &job::Config;
 }
@@ -145,7 +146,7 @@ struct ClosureErasedJob<R> {
 impl<R, Fut> ErasedJob for ClosureErasedJob<R>
 where
     R: Send + Sync + 'static,
-    R: Fn(ErasedJobContext<'_>, &TypeMap) -> Result<Fut>,
+    R: Fn(ErasedJobContext<'_>, &TypeMap) -> Result<Fut, InternalError>,
     Fut: Future<Output = Result<(), job::Error>>,
     Fut: Send + Sync + 'static,
 {
@@ -153,7 +154,7 @@ where
         &self,
         ctx: ErasedJobContext<'_>,
         state_map: &TypeMap,
-    ) -> Result<Result<(), job::Error>> {
+    ) -> Result<Result<(), job::Error>, InternalError> {
         Ok((self.run)(ctx, state_map)?.await)
     }
 

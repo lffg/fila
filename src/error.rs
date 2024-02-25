@@ -1,63 +1,100 @@
-use std::{error::Error as StdError, fmt};
+//! Fila's error types.
 
-pub type Result<T, E = Error> = std::result::Result<T, E>;
+use thiserror::Error;
 
-/// This type represents all possible errors that can happen during Fila's
-/// operations.
+use crate::job;
+use std::error::Error as StdError;
+
+type AnyError = Box<dyn StdError + Send + 'static>;
+
+/// Internal error.
+#[derive(Debug, Error)]
+pub(crate) enum InternalError {
+    #[error("database failed to acquire transaction")]
+    DatabaseFailedToAcquireTransaction(DatabaseError),
+    #[error("database failed to commit transaction")]
+    DatabaseFailedToCommitTransaction(DatabaseError),
+    #[error("failed to fetch available job")]
+    DatabaseFailedToFetchJob(DatabaseError),
+    #[error("failed to mark job as processing")]
+    DatabaseFailedToMarkJob(DatabaseError),
+    #[error("job execution error: {0}")]
+    JobExecution(JobExecutionError),
+}
+
+/// Represents any error that may occur during a job's lifecycle, including an
+/// job execution error, which is in turn represented by a [`job::Error`].
 ///
-/// Do not confuse this type with [`job::Error`](crate::job::Error), which
-/// represents an error that may be returned by a [`Job`](crate::job::Job)'s
-/// execution.
-pub struct Error {
-    error: Box<ErrorImpl>,
+/// [`job::Error`]: crate::job::Error
+#[derive(Debug, Error)]
+#[non_exhaustive]
+pub enum JobExecutionError {
+    #[error("failed to deserialize job payload")]
+    PayloadFailedToDeserialize(serde_json::Error),
+    #[error("job execution failed due to: {0}")]
+    ExecutionFailed(AnyError),
+    #[error("job execution cancelled due to: {0}")]
+    ExecutionCancelled(AnyError),
+    #[error("job execution failed due to panic")]
+    ExecutionPanicked(() /* TODO */),
 }
 
-impl fmt::Display for Error {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match &*self.error {
-            ErrorImpl::Serde(msg, inner) => write!(f, "{msg} (caused by: {inner})"),
-            ErrorImpl::Database(msg, inner) => todo!("{msg} (caused by: {inner})"),
+impl From<job::Error> for JobExecutionError {
+    fn from(value: job::Error) -> Self {
+        match value.kind {
+            job::ErrorKind::Failure => JobExecutionError::ExecutionFailed(value.error),
+            job::ErrorKind::Cancellation => JobExecutionError::ExecutionCancelled(value.error),
         }
     }
 }
 
-impl fmt::Debug for Error {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        fmt::Debug::fmt(&*self.error, f)
+/// Represents any error that may occur when publishing a job.
+#[derive(Debug, Error)]
+#[non_exhaustive]
+pub enum JobPublishError {
+    #[error("failed to serialize job payload")]
+    PayloadFailedToSerialize(serde_json::Error),
+    #[error("failed to save job on the database")]
+    DatabaseFailedToSave(DatabaseError),
+}
+
+/// Represents any error that may occur during Fila's setup.
+#[derive(Debug, Error)]
+#[non_exhaustive]
+pub enum SetupError {
+    #[error("failed to connect to the database")]
+    DatabaseFailedToConnect(DatabaseError),
+    #[error("failed to create postgres listener")]
+    DatabaseFailedToCreateListener(DatabaseError),
+    #[error("failed to listen to postgres listener's topic")]
+    DatabaseFailedToListen(DatabaseError),
+}
+
+#[derive(Debug, Error)]
+pub enum DatabaseError {
+    #[error("{0}")]
+    Sqlx(Box<sqlx::Error>),
+}
+
+impl From<sqlx::Error> for DatabaseError {
+    fn from(error: sqlx::Error) -> Self {
+        Self::Sqlx(Box::new(error))
     }
 }
 
-impl StdError for Error {
-    fn source(&self) -> Option<&(dyn StdError + 'static)> {
-        match &*self.error {
-            ErrorImpl::Serde(_, src) => Some(src),
-            ErrorImpl::Database(_, src) => Some(&**src),
-        }
+pub(crate) trait ResultExt<T, E1> {
+    fn map_err_into<F, I, E2>(self, f: F) -> Result<T, E2>
+    where
+        F: FnOnce(I) -> E2,
+        I: From<E1>;
+}
+
+impl<T, E1> ResultExt<T, E1> for Result<T, E1> {
+    fn map_err_into<F, I, E2>(self, f: F) -> Result<T, E2>
+    where
+        F: FnOnce(I) -> E2,
+        I: From<E1>,
+    {
+        self.map_err(|error| f(error.into()))
     }
 }
-
-/// The actual error implementation.
-#[derive(Debug)]
-pub(crate) enum ErrorImpl {
-    Serde(&'static str, serde_json::Error),
-    Database(&'static str, Box<dyn StdError + Send + Sync + 'static>),
-}
-
-pub(crate) trait ResultExt<T> {
-    fn with_ctx(self, msg: &'static str) -> Result<T>;
-}
-
-macro_rules! impl_result_ext {
-    ($variant:ident($error:ty)) => {
-        impl<T> ResultExt<T> for Result<T, $error> {
-            fn with_ctx(self, msg: &'static str) -> Result<T> {
-                self.map_err(|orig| Error {
-                    error: Box::new(ErrorImpl::$variant(msg, orig.into())),
-                })
-            }
-        }
-    };
-}
-
-impl_result_ext!(Serde(serde_json::Error));
-impl_result_ext!(Database(sqlx::Error));
