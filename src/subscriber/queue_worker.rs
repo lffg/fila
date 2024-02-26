@@ -184,6 +184,8 @@ impl QueueWorker {
             )
             .await
             // TODO: Improve error handling.
+            //
+            // An error here probably means that the database is in a bad state.
             .unwrap();
 
             let msg = match status {

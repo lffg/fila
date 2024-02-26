@@ -16,8 +16,8 @@ pub(crate) enum InternalError {
     DatabaseFailedToCommitTransaction(DatabaseError),
     #[error("failed to fetch available job")]
     DatabaseFailedToFetchJob(DatabaseError),
-    #[error("failed to mark job as processing")]
-    DatabaseFailedToMarkJob(DatabaseError),
+    #[error("failed to mark job as {1:?}")]
+    DatabaseFailedToMarkJob(DatabaseError, job::State),
     #[error("job execution error: {0}")]
     JobExecution(JobExecutionError),
 }
@@ -29,13 +29,25 @@ pub(crate) enum InternalError {
 #[derive(Debug, Error)]
 #[non_exhaustive]
 pub enum JobExecutionError {
+    /// Fila wasn't able to deserialize the job's payload, before executing the
+    /// job's execution code.
     #[error("failed to deserialize job payload")]
     PayloadFailedToDeserialize(serde_json::Error),
+    /// Some error was returned from the job execution code.
     #[error("job execution failed due to: {0}")]
     ExecutionFailed(AnyError),
+    /// Execution *explicitly* cancelled by the job's execution code.
+    ///
+    /// This variant is not returned when the cancellation is triggered by the
+    /// maximum number of retries being reached. In such a case, which happens
+    /// due to a failure during the job execution, the error is reported using
+    /// the [`ExecutionFailed`] variant.
+    ///
+    /// [`ExecutionFailed`]: JobExecutionError::ExecutionFailed
     #[error("job execution cancelled due to: {0}")]
     ExecutionCancelled(AnyError),
     #[error("job execution failed due to panic")]
+    /// The job's execution code panicked.
     ExecutionPanicked(() /* TODO */),
 }
 

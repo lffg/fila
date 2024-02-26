@@ -153,7 +153,7 @@ where
     }
 }
 
-#[derive(Debug, Copy, Clone, sqlx::Type)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, sqlx::Type)]
 #[sqlx(type_name = "fila.job_state", rename_all = "lowercase")]
 pub(crate) enum State {
     Available,
