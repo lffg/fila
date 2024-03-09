@@ -226,9 +226,20 @@ fn handle_job_execution_result(
                 Ok(Err(JobExecutionError::ExecutionFailed(error))),
             )
         }
+
         Err(InternalError::JobExecution(error)) => {
-            trace!(?error, "job dispatching failed; will retry");
-            (job::State::Available, Ok(Err(error)))
+            /// As per the error documentation on [`dispatch_and_exec`], this
+            /// specific error only happens if the job payload fails to
+            /// deserialize *or* if the execution panics. In both of those
+            /// cases, the most reasonable action is to just cancel the job
+            /// execution, as a retry probably won't be of any help.
+            ///
+            /// [`dispatch_and_exec`]:
+            ///     crate::subscriber::magic::JobRegistry::dispatch_and_exec
+            struct _RustDocMustValidateThisComment;
+
+            trace!(?error, "job execution internal error; will cancel");
+            (job::State::Cancelled, Ok(Err(error)))
         }
         Err(error) => {
             trace!(

@@ -3,7 +3,7 @@
 use thiserror::Error;
 
 use crate::job;
-use std::error::Error as StdError;
+use std::{any::Any, borrow::Cow, error::Error as StdError, fmt};
 
 type AnyError = Box<dyn StdError + Send + 'static>;
 
@@ -48,7 +48,7 @@ pub enum JobExecutionError {
     ExecutionCancelled(AnyError),
     #[error("job execution failed due to panic")]
     /// The job's execution code panicked.
-    ExecutionPanicked(() /* TODO */),
+    ExecutionPanicked(PanicContent),
 }
 
 impl From<job::Error> for JobExecutionError {
@@ -108,5 +108,31 @@ impl<T, E1> ResultExt<T, E1> for Result<T, E1> {
         I: From<E1>,
     {
         self.map_err(|error| f(error.into()))
+    }
+}
+
+pub enum PanicContent {
+    String(Cow<'static, str>),
+    Unknown(Box<dyn Any + Send + 'static>),
+}
+
+impl From<Box<dyn Any + Send + 'static>> for PanicContent {
+    fn from(value: Box<dyn Any + Send + 'static>) -> Self {
+        if let Some(borrowed) = value.downcast_ref::<&str>() {
+            return Self::String(Cow::Borrowed(borrowed));
+        }
+        match value.downcast() {
+            Ok(owned) => Self::String(Cow::Owned(*owned)),
+            Err(unknown) => Self::Unknown(unknown),
+        }
+    }
+}
+
+impl fmt::Debug for PanicContent {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::String(str) => f.write_str(str),
+            Self::Unknown(_) => f.write_str("<unknown content>"),
+        }
     }
 }

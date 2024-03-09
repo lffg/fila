@@ -1,4 +1,5 @@
 mod cancelled_after_failures;
+mod catch_panic;
 mod graceful_shutdown;
 mod successful;
 

@@ -2,9 +2,11 @@ use std::{
     any::{Any, TypeId},
     collections::HashMap,
     future::Future,
+    panic::AssertUnwindSafe,
 };
 
 use async_trait::async_trait;
+use futures_util::FutureExt;
 use serde::de::DeserializeOwned;
 
 use crate::{
@@ -40,13 +42,21 @@ impl JobRegistry {
     /// The outer result represents a failure in the library side. The inner
     /// errors represents a failure during the job execution side.
     ///
+    /// May return an error [`InternalError::JobExecution`] when:
+    /// - The job payload deserialization failed;
+    /// - The job execution function panicked.
+    ///
     /// Panics if there isn't a job registered with the given name.
     pub async fn dispatch_and_exec(
         &self,
         ctx: ErasedJobContext<'_>,
     ) -> Result<Result<(), job::Error>, InternalError> {
         let job_handle = &self.job_map[ctx.name];
-        job_handle.exec(ctx, &self.state_map).await
+        AssertUnwindSafe(job_handle.exec(ctx, &self.state_map))
+            .catch_unwind()
+            .await
+            .map_err_into(JobExecutionError::ExecutionPanicked)
+            .map_err_into(InternalError::JobExecution)?
     }
 
     /// Returns the configuration for the given job name.
