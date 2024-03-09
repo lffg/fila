@@ -46,7 +46,7 @@ $(POSTGRES_VERSION):
 	TZ=UTC initdb $(POSTGRES_DATABASE)
 
 $(POSTGRES_SERVER): $(POSTGRES_VERSION)
-	$(PG_CTL) -l $(POSTGRES_ROOT)/postgresql.log start
+	$(PG_CTL) -o '-k ""' -l $(POSTGRES_ROOT)/postgresql.log start
 	@createdb $(PG_DATABASE) 2>/dev/null || true
 
 .PHONY: db.psql
