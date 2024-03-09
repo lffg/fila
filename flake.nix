@@ -26,7 +26,7 @@
           commonPackages = with pkgs; [
             # The usual Rust profile
             (rust-bin.stable."1.76.0".default.override {
-              extensions = ["rust-src" "rust-analyzer"];
+              extensions = ["rust-src" "rust-analyzer" "llvm-tools"];
             })
             # We need a nightly version of rustfmt to format this crate
             (writeShellApplication {
@@ -39,6 +39,8 @@
               ];
               text = ''cargo fmt "$@"'';
             })
+            cargo-nextest
+            cargo-llvm-cov
 
             postgresql_15
             gnumake

@@ -39,7 +39,11 @@ fmt:
 
 .PHONY: test
 test: $(POSTGRES_SERVER)
-	cargo test --all-features --all -- $(CARGO_TEST_RUST_FLAGS) $(FILTER)
+	cargo nextest run --all-targets --all $(CARGO_TEST_RUST_FLAGS) $(FILTER)
+
+.PHONY: cov
+cov: $(POSTGRES_SERVER)
+	cargo llvm-cov nextest $(ARGS)
 
 $(POSTGRES_VERSION):
 	mkdir -p $(POSTGRES_DATABASE)
